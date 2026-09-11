@@ -6,6 +6,8 @@
   "cceb_distribution"
 )
 
+# Building blocks --------------------------------------------------------
+
 .require_columns <- function(dat, required, table_name) {
   missing <- setdiff(required, names(dat))
   if (length(missing) > 0L) {
@@ -21,24 +23,15 @@
   if (nrow(dat) == 0L) {
     return(invisible(dat))
   }
-  duplicated_key <- duplicated(dat[key]) | duplicated(dat[key], fromLast = TRUE)
-  if (any(duplicated_key)) {
+
+  counts <- dplyr::count(dat, dplyr::across(dplyr::all_of(key)))
+  if (any(counts$n > 1L)) {
     cli::cli_abort(
       "{.field {table_name}} has duplicate rows for key {paste(key, collapse = ', ')}."
     )
   }
 
   return(invisible(dat))
-}
-
-.group_key <- function(dat, fields) {
-  values <- lapply(dat[fields], function(value) {
-    value <- as.character(value)
-    value[is.na(value)] <- "<NA>"
-    value
-  })
-
-  return(do.call(paste, c(values, sep = "\r")))
 }
 
 .check_integer_values <- function(x, field, table_name, minimum = NULL) {
@@ -58,6 +51,8 @@
 
   return(invisible(x))
 }
+
+# Table checks -----------------------------------------------------------
 
 validate_cceb_editions <- function(editions) {
   required <- c(
@@ -84,11 +79,8 @@ validate_cceb_editions <- function(editions) {
       "{.field cceb_editions$effective_date} must contain complete dates."
     )
   }
-  if (
-    anyNA(editions$effective_date_source) ||
-      anyNA(editions$regime) ||
-      anyNA(editions$lang)
-  ) {
+  identity_columns <- c("effective_date_source", "regime", "lang")
+  if (anyNA(dplyr::select(editions, dplyr::all_of(identity_columns)))) {
     cli::cli_abort("The edition identity metadata must be complete.")
   }
 
@@ -116,20 +108,16 @@ validate_cceb_points <- function(points) {
   .check_integer_values(points$level_order, "level_order", "cceb_points", 1L)
   .check_integer_values(points$points, "points", "cceb_points", 0L)
   identity_columns <- c("block", "variable", "label_pt", "label_en", "level")
-  if (anyNA(points[identity_columns])) {
+  if (anyNA(dplyr::select(points, dplyr::all_of(identity_columns)))) {
     cli::cli_abort("The point-rule identity fields must be complete.")
   }
 
-  groups <- split(
-    points$level_order,
-    interaction(points$edition_id, points$variable, drop = TRUE)
+  level_orders <- dplyr::summarise(
+    points,
+    ordered = identical(sort(level_order), seq_along(level_order)),
+    .by = c(edition_id, variable)
   )
-  valid_order <- vapply(
-    groups,
-    \(values) identical(sort(values), seq_along(values)),
-    logical(1)
-  )
-  if (any(!valid_order)) {
+  if (!all(level_orders$ordered)) {
     cli::cli_abort("Point-rule levels must be consecutively ordered from one.")
   }
 
@@ -146,11 +134,7 @@ validate_cceb_cutoffs <- function(cutoffs, points) {
   )
   .require_columns(cutoffs, required, "cceb_cutoffs")
   .check_unique_key(cutoffs, c("edition_id", "class"), "cceb_cutoffs")
-  .check_unique_key(
-    cutoffs,
-    c("edition_id", "class_order"),
-    "cceb_cutoffs"
-  )
+  .check_unique_key(cutoffs, c("edition_id", "class_order"), "cceb_cutoffs")
   .check_integer_values(cutoffs$edition_id, "edition_id", "cceb_cutoffs")
   .check_integer_values(cutoffs$class_order, "class_order", "cceb_cutoffs", 1L)
   .check_integer_values(cutoffs$points_min, "points_min", "cceb_cutoffs", 0L)
@@ -161,36 +145,65 @@ validate_cceb_cutoffs <- function(cutoffs, points) {
     )
   }
 
-  edition_ids <- unique(cutoffs$edition_id)
-  for (edition_id in edition_ids) {
-    edition_cutoffs <- cutoffs[cutoffs$edition_id == edition_id, , drop = FALSE]
-    edition_cutoffs <- edition_cutoffs[
-      order(edition_cutoffs$points_min),
-      ,
-      drop = FALSE
-    ]
-    if (nrow(edition_cutoffs) > 1L) {
-      contiguous <- edition_cutoffs$points_min[-1L] ==
-        edition_cutoffs$points_max[-nrow(edition_cutoffs)] + 1L
-      if (any(!contiguous)) {
-        cli::cli_abort(
-          "The cutoff ranges for edition {edition_id} overlap or contain gaps."
-        )
-      }
-    }
+  .check_cutoff_ranges(cutoffs)
+  .check_cutoff_maximum(cutoffs, points)
 
-    edition_points <- points[points$edition_id == edition_id, , drop = FALSE]
-    variable_maxima <- tapply(
-      edition_points$points,
-      edition_points$variable,
-      max
+  return(invisible(cutoffs))
+}
+
+# Consecutive classes must start one point above the previous class.
+.check_cutoff_ranges <- function(cutoffs, call = rlang::caller_env()) {
+  ranges <- dplyr::arrange(cutoffs, edition_id, points_min)
+  ranges <- dplyr::mutate(
+    ranges,
+    contiguous = points_min == dplyr::lag(points_max) + 1L,
+    .by = edition_id
+  )
+
+  broken <- dplyr::filter(ranges, !contiguous)
+  if (nrow(broken) > 0L) {
+    cli::cli_abort(
+      "The cutoff ranges for edition {broken$edition_id[[1]]} overlap or contain gaps.",
+      call = call
     )
-    attainable_maximum <- sum(variable_maxima)
-    if (max(edition_cutoffs$points_max) != attainable_maximum) {
-      cli::cli_abort(
-        "The top cutoff for edition {edition_id} does not equal its attainable score maximum."
-      )
-    }
+  }
+
+  return(invisible(cutoffs))
+}
+
+# The top cutoff must equal the score of a household that scores the maximum
+# on every question.
+.check_cutoff_maximum <- function(
+  cutoffs,
+  point_rules,
+  call = rlang::caller_env()
+) {
+  variable_maxima <- dplyr::summarise(
+    point_rules,
+    variable_max = max(points),
+    .by = c(edition_id, variable)
+  )
+  attainable <- dplyr::summarise(
+    variable_maxima,
+    attainable_maximum = sum(variable_max),
+    .by = edition_id
+  )
+  published <- dplyr::summarise(
+    cutoffs,
+    published_maximum = max(points_max),
+    .by = edition_id
+  )
+
+  compared <- dplyr::left_join(published, attainable, by = "edition_id")
+  mismatched <- dplyr::filter(
+    compared,
+    is.na(attainable_maximum) | published_maximum != attainable_maximum
+  )
+  if (nrow(mismatched) > 0L) {
+    cli::cli_abort(
+      "The top cutoff for edition {mismatched$edition_id[[1]]} does not equal its attainable score maximum.",
+      call = call
+    )
   }
 
   return(invisible(cutoffs))
@@ -233,6 +246,14 @@ validate_cceb_income <- function(income) {
   return(invisible(income))
 }
 
+.cceb_distribution_group_fields <- c(
+  "edition_id",
+  "geo_level",
+  "geo_code",
+  "ref_year",
+  "ref_source"
+)
+
 validate_cceb_distribution <- function(distribution, tolerance = 0.025) {
   required <- c(
     "edition_id",
@@ -265,7 +286,7 @@ validate_cceb_distribution <- function(distribution, tolerance = 0.025) {
     "class",
     "ref_source"
   )
-  if (anyNA(distribution[identity_columns])) {
+  if (anyNA(dplyr::select(distribution, dplyr::all_of(identity_columns)))) {
     cli::cli_abort(
       "The distribution identity and source fields must be complete."
     )
@@ -278,39 +299,24 @@ validate_cceb_distribution <- function(distribution, tolerance = 0.025) {
     cli::cli_abort("Distribution shares must lie within [0, 1].")
   }
 
-  group_fields <- c(
-    "edition_id",
-    "geo_level",
-    "geo_code",
-    "ref_year",
-    "ref_source"
+  class_sets <- dplyr::summarise(
+    distribution,
+    total = sum(share),
+    classes = list(sort(class)),
+    .by = dplyr::all_of(.cceb_distribution_group_fields)
   )
-  groups <- split(
-    seq_len(nrow(distribution)),
-    .group_key(distribution, group_fields)
-  )
-  totals <- vapply(groups, \(index) sum(distribution$share[index]), numeric(1))
-  if (any(abs(totals - 1) > tolerance)) {
+  if (any(abs(class_sets$total - 1) > tolerance)) {
     cli::cli_abort(
       "Distribution shares must sum to 100% within {tolerance * 100} percentage points."
     )
   }
 
-  class_sets <- lapply(groups, \(index) sort(distribution$class[index]))
-  group_editions <- vapply(
-    groups,
-    \(index) as.character(distribution$edition_id[index[[1L]]]),
-    character(1)
+  complete <- dplyr::summarise(
+    class_sets,
+    consistent = length(unique(classes)) == 1L,
+    .by = edition_id
   )
-  complete <- vapply(
-    split(seq_along(groups), group_editions),
-    function(indexes) {
-      sets <- class_sets[indexes]
-      all(vapply(sets[-1L], identical, logical(1), sets[[1L]]))
-    },
-    logical(1)
-  )
-  if (any(!complete)) {
+  if (!all(complete$consistent)) {
     cli::cli_abort(
       "Every geography within an edition must contain the same class set."
     )
@@ -318,6 +324,8 @@ validate_cceb_distribution <- function(distribution, tolerance = 0.025) {
 
   return(invisible(distribution))
 }
+
+# Whole-dataset checks ---------------------------------------------------
 
 validate_cceb_relations <- function(data) {
   edition_ids <- data$cceb_editions$edition_id
@@ -365,7 +373,7 @@ validate_cceb_data <- function(data, tolerance = 0.025) {
   if (length(edition_id) != 1L || anyNA(edition_id)) {
     cli::cli_abort("Validation requires exactly one edition.")
   }
-  table_ids <- unique(unlist(lapply(data, \(dat) dat$edition_id)))
+  table_ids <- unique(purrr::list_c(purrr::map(data, \(dat) dat$edition_id)))
   if (!identical(as.integer(table_ids), as.integer(edition_id))) {
     cli::cli_abort("All non-empty tables must belong to edition {edition_id}.")
   }

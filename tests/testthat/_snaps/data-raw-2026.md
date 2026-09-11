@@ -3,7 +3,7 @@
     Code
       extract_2026_raw_points(pdf)
     Condition
-      Error in `map()`:
+      Error in `purrr::map()`:
       i In index: 4.
       Caused by error in `.f()`:
       ! Expected one row for "Banheiros" in count items; found 0.

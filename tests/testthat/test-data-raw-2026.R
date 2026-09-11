@@ -7,6 +7,7 @@ if (!dir.exists(helper_dir)) {
 }
 
 source(file.path(helper_dir, "pipeline_helpers.R"), local = environment())
+source(file.path(helper_dir, "tidy_helpers.R"), local = environment())
 source(file.path(helper_dir, "extract_2026.R"), local = environment())
 source(file.path(helper_dir, "tidy_2026.R"), local = environment())
 source(file.path(helper_dir, "validate.R"), local = environment())
