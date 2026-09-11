@@ -25,28 +25,31 @@ remotes::install_github("viniciusoike/criteriobrasil")
 
 ## Example
 
-The package ships five tables: `cceb_editions`, `cceb_points`,
-`cceb_cutoffs`, `cceb_income`, and `cceb_distribution`.
+The package provides five tables: `editions`, `points`, `cutoffs`, `income`,
+and `distribution`.
 
 ``` r
 library(criteriobrasil)
 
-# Editions and regimes currently ingested
-cceb_editions[c("edition_id", "regime", "income_source")]
+# Tables and editions currently available
+cceb_list_tables()
 
 # Class cutoffs for the 2026 edition
-cceb_cutoffs[cceb_cutoffs$edition_id == 2026, ]
+cceb_get("cutoffs", edition = 2026)
 ```
 
 ## Data workflow
 
 The source and build workflow in `data-raw/` downloads the ABEP PDFs without
 versioning them, records their hashes in a manifest, extracts each CCEB
-regime, validates the tables, and publishes package data and release assets:
+regime, validates the tables, and prepares the release assets:
 
 1. download the ABEP PDFs and update `manifest.csv`;
 2. extract each CCEB regime;
 3. validate table integrity and compare every result with a source fingerprint;
-4. write package data to `data/` and release assets.
+4. write the internal table registry and prepare the `.rds` release assets.
+
+Users download the tables from the immutable release tag pinned by the
+installed package version. The package itself contains only the table registry.
 
 Downloaded PDFs are ignored by Git and are never committed to the package.

@@ -64,11 +64,44 @@ cceb_data <- list(
 validate_cceb_data(cceb_data)
 verify_cceb_fidelity(cceb_data)
 
+table_descriptions <- c(
+  editions = "Edition dates, sources, regimes, and methodological notes",
+  points = "Points assigned to each questionnaire response",
+  cutoffs = "Point ranges used to assign economic classes",
+  income = "Published mean income estimates by economic class",
+  distribution = "Published class shares by geography"
+)
+
+.cceb_table_registry <- tibble::tibble(
+  table = names(table_descriptions),
+  description = unname(table_descriptions),
+  asset = paste0("cceb_", names(table_descriptions), ".rds"),
+  editions = unname(lapply(
+    cceb_data[paste0("cceb_", names(table_descriptions))],
+    \(data) sort(unique(data$edition_id))
+  )),
+  columns = unname(lapply(
+    cceb_data[paste0("cceb_", names(table_descriptions))],
+    names
+  ))
+)
+
+release_directory <- file.path("data-raw", "release")
+dir.create(release_directory, recursive = TRUE, showWarnings = FALSE)
+
+for (table in names(table_descriptions)) {
+  object_name <- paste0("cceb_", table)
+  saveRDS(
+    cceb_data[[object_name]],
+    file.path(release_directory, paste0(object_name, ".rds")),
+    version = 2L,
+    compress = "xz"
+  )
+}
+
 usethis::use_data(
-  cceb_editions,
-  cceb_points,
-  cceb_cutoffs,
-  cceb_income,
-  cceb_distribution,
-  overwrite = TRUE
+  .cceb_table_registry,
+  internal = TRUE,
+  overwrite = TRUE,
+  compress = "xz"
 )

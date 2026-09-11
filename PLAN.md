@@ -267,8 +267,8 @@ Os testes cobrem os valores padrão, todas as combinações de `"all"`, seleçã
 de edição, classes e tipos de retorno, ordem das linhas, erros de argumento,
 falhas de download e memoização. Os testes de unidade simulam o download e
 rodam offline; um teste separado do pipeline confere os `.rds` gerados contra
-os objetos validados. A documentação inclui exemplos executáveis sem rede com
-os dados de teste e exemplos de download sob `\dontrun{}`.
+o registro local. A documentação executa `cceb_list_tables()` sem rede e
+restringe os exemplos de download a sessões interativas.
 
 `cceb_score_table()` devolve pontuação, cortes e distribuição num objeto
 formatado, com fonte e data de vigência no rodapé, pronto para slide. Internamente

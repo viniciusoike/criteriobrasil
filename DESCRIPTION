@@ -10,9 +10,10 @@ Description: Provides tidy tables from the Brazilian Economic Classification
 Depends: 
     R (>= 3.5)
 Imports: 
-    lifecycle
-Suggests: 
     cli,
+    lifecycle,
+    tibble
+Suggests:
     digest,
     dplyr,
     httr2,
@@ -22,10 +23,8 @@ Suggests:
     rvest,
     stringr,
     testthat (>= 3.0.0),
-    tibble,
     xml2
 Config/testthat/edition: 3
-LazyData: true
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
