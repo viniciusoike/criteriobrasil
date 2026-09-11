@@ -1,3 +1,5 @@
+# Source catalog ---------------------------------------------------------
+
 .cceb_source_page <- "https://abep.org/criterio-brasil/"
 
 .cceb_2026_urls <- c(
@@ -16,21 +18,40 @@
   `2014` = "https://abep.org/wp-content/uploads/2024/02/09_cceb_2014.pdf"
 )
 
-.request_with_retry <- function(url, max_tries = 3, timeout = 60) {
-  request <- httr2::request(url)
-  request <- httr2::req_user_agent(
-    request,
-    "criteriobrasil data pipeline (https://github.com/viniciusreginatto/criteriobrasil)"
-  )
-  request <- httr2::req_options(request, timeout = timeout)
-  request <- httr2::req_retry(
-    request,
-    max_tries = max_tries,
-    retry_on_failure = TRUE,
-    backoff = \(i) min(2^(i - 1), 30)
-  )
+.cceb_edition_ids <- c(
+  2003L,
+  2008L,
+  2009L,
+  2010L,
+  2011L,
+  2012L,
+  2013L,
+  2014L,
+  2015L,
+  2016L,
+  2018L,
+  2019L,
+  2020L,
+  2021L,
+  2022L,
+  2024L,
+  2026L
+)
 
-  response <- httr2::req_perform(request)
+# Downloads --------------------------------------------------------------
+
+.request_with_retry <- function(url, max_tries = 3, timeout = 60) {
+  response <- httr2::request(url) |>
+    httr2::req_user_agent(
+      "criteriobrasil data pipeline (https://github.com/viniciusreginatto/criteriobrasil)"
+    ) |>
+    httr2::req_options(timeout = timeout) |>
+    httr2::req_retry(
+      max_tries = max_tries,
+      retry_on_failure = TRUE,
+      backoff = \(i) min(2^(i - 1), 30)
+    ) |>
+    httr2::req_perform()
 
   return(response)
 }
@@ -91,54 +112,60 @@ get_cceb_links <- function(
     html <- httr2::resp_body_string(response)
   }
 
-  document <- xml2::read_html(html)
-  anchors <- rvest::html_elements(document, "a")
-  labels <- rvest::html_text2(anchors)
-  hrefs <- rvest::html_attr(anchors, "href")
-  absolute_hrefs <- xml2::url_absolute(hrefs, page_url)
-  searchable <- paste(labels, hrefs)
-
-  keep <- !is.na(hrefs) &
+  anchors <- rvest::html_elements(xml2::read_html(html), "a")
+  anchors <- tibble::tibble(
+    label = rvest::html_text2(anchors),
+    href = rvest::html_attr(anchors, "href")
+  )
+  candidates <- dplyr::filter(
+    anchors,
+    !is.na(href),
     stringr::str_detect(
-      hrefs,
+      href,
       stringr::regex("\\.pdf(?:$|[?#])", ignore_case = TRUE)
-    ) &
-    stringr::str_detect(searchable, stringr::fixed(edition_id))
+    ),
+    stringr::str_detect(
+      stringr::str_c(label, href, sep = " "),
+      stringr::fixed(edition_id)
+    )
+  )
 
-  if (!any(keep)) {
+  if (nrow(candidates) == 0L) {
     cli::cli_abort(
       "No PDF link for CCEB edition {edition_id} was found on {.url {page_url}}."
     )
   }
 
-  links <- tibble::tibble(
-    edition_id = as.integer(edition_id),
-    label = labels[keep],
-    url = absolute_hrefs[keep]
-  )
-  links$file_name <- basename(sub("[?#].*$", "", links$url))
-  searchable <- stringr::str_c(links$label, links$url, sep = " ")
-  links$lang <- NA_character_
-  links$lang[stringr::str_detect(
-    searchable,
-    stringr::regex("ingl|english|[-_]eng(?:lish)?", ignore_case = TRUE)
-  )] <- "en"
-  links$lang[stringr::str_detect(
-    searchable,
-    stringr::regex("portugu|brasil|cceb_[0-9]+\\.pdf$", ignore_case = TRUE)
-  )] <- "pt"
-
-  unknown <- is.na(links$lang)
-  if (any(unknown)) {
-    links$lang[unknown] <- "pt"
-  }
-
-  links <- links[!duplicated(links$url), , drop = FALSE]
-  links <- links[order(match(links$lang, c("pt", "en"))), , drop = FALSE]
-  rownames(links) <- NULL
+  # The Portuguese patterns are tested last so that they win over a label that
+  # matches both languages.
+  links <- candidates |>
+    dplyr::mutate(
+      edition_id = as.integer(edition_id),
+      url = xml2::url_absolute(href, page_url),
+      file_name = basename(stringr::str_remove(url, "[?#].*$")),
+      lang = dplyr::case_when(
+        stringr::str_detect(
+          stringr::str_c(label, url, sep = " "),
+          stringr::regex(
+            "portugu|brasil|cceb_[0-9]+\\.pdf$",
+            ignore_case = TRUE
+          )
+        ) ~ "pt",
+        stringr::str_detect(
+          stringr::str_c(label, url, sep = " "),
+          stringr::regex("ingl|english|[-_]eng(?:lish)?", ignore_case = TRUE)
+        ) ~ "en",
+        .default = "pt"
+      )
+    ) |>
+    dplyr::distinct(url, .keep_all = TRUE) |>
+    dplyr::arrange(match(lang, c("pt", "en"))) |>
+    dplyr::select(edition_id, label, url, file_name, lang)
 
   return(links)
 }
+
+# Source manifest --------------------------------------------------------
 
 sha256_file <- function(path) {
   if (!file.exists(path)) {
@@ -148,6 +175,15 @@ sha256_file <- function(path) {
   hash <- digest::digest(path, algo = "sha256", file = TRUE)
 
   return(hash)
+}
+
+.duplicated_manifest_keys <- function(manifest, key) {
+  duplicates <- manifest |>
+    dplyr::count(dplyr::across(dplyr::all_of(key))) |>
+    dplyr::filter(n > 1L) |>
+    dplyr::select(dplyr::all_of(key))
+
+  return(do.call(paste, c(duplicates, sep = "/")))
 }
 
 read_cceb_manifest <- function(
@@ -175,44 +211,34 @@ read_cceb_manifest <- function(
     )
   }
 
-  manifest <- manifest[, required]
-  manifest$edition_id <- as.integer(manifest$edition_id)
-  manifest$lang <- as.character(manifest$lang)
-  manifest$file_name <- as.character(manifest$file_name)
-  manifest$url <- as.character(manifest$url)
-  manifest$sha256 <- as.character(manifest$sha256)
-  manifest$accessed_at <- as.character(manifest$accessed_at)
+  manifest <- manifest |>
+    dplyr::select(dplyr::all_of(required)) |>
+    dplyr::mutate(
+      edition_id = as.integer(edition_id),
+      dplyr::across(!edition_id, as.character)
+    )
 
-  if (
-    anyNA(manifest$edition_id) ||
-      anyNA(manifest$lang) ||
-      anyNA(manifest$file_name) ||
-      anyNA(manifest$url) ||
-      anyNA(manifest$sha256)
-  ) {
+  identity <- c("edition_id", "lang", "file_name", "url", "sha256")
+  if (anyNA(dplyr::select(manifest, dplyr::all_of(identity)))) {
     cli::cli_abort("The source manifest contains missing identity fields.")
   }
 
-  key <- paste(manifest$edition_id, manifest$lang, sep = "/")
-  if (anyDuplicated(key)) {
-    duplicates <- unique(key[
-      duplicated(key) | duplicated(key, fromLast = TRUE)
-    ])
+  duplicated_editions <- .duplicated_manifest_keys(
+    manifest,
+    c("edition_id", "lang")
+  )
+  if (length(duplicated_editions) > 0L) {
     cli::cli_abort(
-      "The source manifest has duplicate edition/language keys: {paste(duplicates, collapse = ', ')}."
+      "The source manifest has duplicate edition/language keys: {paste(duplicated_editions, collapse = ', ')}."
     )
   }
-  if (anyDuplicated(manifest$file_name)) {
-    duplicates <- unique(manifest$file_name[
-      duplicated(manifest$file_name) |
-        duplicated(manifest$file_name, fromLast = TRUE)
-    ])
+  duplicated_files <- .duplicated_manifest_keys(manifest, "file_name")
+  if (length(duplicated_files) > 0L) {
     cli::cli_abort(
-      "The source manifest has duplicate file names: {paste(duplicates, collapse = ', ')}."
+      "The source manifest has duplicate file names: {paste(duplicated_files, collapse = ', ')}."
     )
   }
-  valid_hash <- stringr::str_detect(manifest$sha256, "^[0-9a-f]{64}$")
-  if (any(!valid_hash)) {
+  if (!all(stringr::str_detect(manifest$sha256, "^[0-9a-f]{64}$"))) {
     cli::cli_abort("The source manifest contains an invalid SHA-256 hash.")
   }
 
@@ -225,14 +251,12 @@ verify_source_files <- function(
   edition_ids = NULL,
   lang = "pt"
 ) {
+  requested_langs <- lang
   manifest <- read_cceb_manifest(manifest_path)
-  manifest <- manifest[manifest$lang %in% lang, , drop = FALSE]
+  manifest <- dplyr::filter(manifest, lang %in% requested_langs)
   if (!is.null(edition_ids)) {
-    manifest <- manifest[
-      manifest$edition_id %in% as.integer(edition_ids),
-      ,
-      drop = FALSE
-    ]
+    requested_ids <- as.integer(edition_ids)
+    manifest <- dplyr::filter(manifest, edition_id %in% requested_ids)
   }
   if (nrow(manifest) == 0L) {
     cli::cli_abort(
@@ -240,24 +264,18 @@ verify_source_files <- function(
     )
   }
 
-  paths <- file.path(pdf_dir, manifest$file_name)
-  missing <- !file.exists(paths)
-  if (any(missing)) {
-    cli::cli_abort(
-      "Source PDF{?s} {?is/are} missing: {paste(paths[missing], collapse = ', ')}."
-    )
+  sources <- dplyr::mutate(manifest, path = file.path(pdf_dir, file_name))
+  missing <- dplyr::filter(sources, !file.exists(path))
+  if (nrow(missing) > 0L) {
+    cli::cli_abort("Missing source PDF{?s}: {.path {missing$path}}.")
   }
 
-  actual <- vapply(paths, sha256_file, character(1))
-  changed <- actual != manifest$sha256
-  if (any(changed)) {
-    details <- paste0(
-      manifest$edition_id[changed],
-      "/",
-      manifest$lang[changed],
-      " (",
-      manifest$file_name[changed],
-      ")"
+  changed <- sources |>
+    dplyr::mutate(actual_sha256 = purrr::map_chr(path, sha256_file)) |>
+    dplyr::filter(actual_sha256 != sha256)
+  if (nrow(changed) > 0L) {
+    details <- stringr::str_glue(
+      "{changed$edition_id}/{changed$lang} ({changed$file_name})"
     )
     cli::cli_abort(
       c(
@@ -306,15 +324,17 @@ update_manifest <- function(
     accessed_at = as.character(Sys.Date())
   )
 
-  same_file <- manifest$edition_id == new_row$edition_id &
-    manifest$lang == new_row$lang
-  existing <- manifest[same_file & !is.na(same_file), , drop = FALSE]
+  existing <- dplyr::filter(
+    manifest,
+    edition_id == new_row$edition_id,
+    lang == new_row$lang
+  )
   if (nrow(existing) == 1L && !replace) {
-    if (
-      !identical(existing$file_name[[1]], new_row$file_name[[1]]) ||
-        !identical(existing$url[[1]], new_row$url[[1]]) ||
-        !identical(existing$sha256[[1]], new_row$sha256[[1]])
-    ) {
+    identical_source <- identical(
+      existing[, c("file_name", "url", "sha256")],
+      new_row[, c("file_name", "url", "sha256")]
+    )
+    if (!identical_source) {
       cli::cli_abort(
         c(
           "The manifest entry for edition {new_row$edition_id}/{new_row$lang} changed.",
@@ -325,17 +345,77 @@ update_manifest <- function(
 
     return(manifest)
   }
-  manifest <- manifest[!same_file | is.na(same_file), , drop = FALSE]
-  manifest <- dplyr::bind_rows(manifest, new_row)
-  manifest <- manifest[
-    order(manifest$edition_id, manifest$lang),
-    ,
-    drop = FALSE
-  ]
+
+  manifest <- manifest |>
+    dplyr::filter(
+      edition_id != new_row$edition_id | lang != new_row$lang
+    ) |>
+    dplyr::bind_rows(new_row) |>
+    dplyr::arrange(edition_id, lang)
   readr::write_csv(manifest, manifest_path)
 
   return(manifest)
 }
+
+cceb_edition_links <- function(edition) {
+  key <- as.character(edition)
+  if (key %in% names(.cceb_legacy_urls)) {
+    url <- unname(.cceb_legacy_urls[[key]])
+    links <- tibble::tibble(
+      edition_id = as.integer(edition),
+      label = NA_character_,
+      url = url,
+      file_name = basename(url),
+      lang = "pt"
+    )
+  } else {
+    links <- dplyr::filter(get_cceb_links(edition_id = edition), lang == "pt")
+  }
+  if (nrow(links) != 1L) {
+    cli::cli_abort(
+      "Expected one Portuguese PDF for edition {edition}; found {nrow(links)}."
+    )
+  }
+
+  return(links)
+}
+
+download_cceb_edition <- function(
+  edition,
+  pdf_dir = file.path("data-raw", "pdf"),
+  overwrite = FALSE,
+  replace = FALSE
+) {
+  links <- cceb_edition_links(edition)
+  destination <- file.path(pdf_dir, links$file_name[[1]])
+  download_with_retry(links$url[[1]], destination, overwrite = overwrite)
+  update_manifest(links, destination, replace = replace)
+
+  return(invisible(destination))
+}
+
+edition_source_link <- function(manifest, edition) {
+  link <- dplyr::filter(manifest, edition_id == edition)
+  if (nrow(link) != 1L) {
+    cli::cli_abort(
+      "Expected one manifest row for edition {edition}; found {nrow(link)}."
+    )
+  }
+
+  return(link)
+}
+
+edition_source_pdf <- function(manifest, edition, pdf_dir = "data-raw/pdf") {
+  link <- edition_source_link(manifest, edition)
+  pdf_path <- file.path(pdf_dir, link$file_name[[1]])
+  if (!file.exists(pdf_path)) {
+    cli::cli_abort("The downloaded PDF {.path {pdf_path}} is missing.")
+  }
+
+  return(pdf_path)
+}
+
+# PDF text ---------------------------------------------------------------
 
 read_cceb_pdf <- function(path) {
   if (!file.exists(path)) {
@@ -369,18 +449,19 @@ as_cceb_pdf <- function(pdf) {
   cli::cli_abort("`pdf` must be a PDF path or a parsed {.cls cceb_pdf} object.")
 }
 
+pdf_pages_matching <- function(pdf, pattern) {
+  pdf <- as_cceb_pdf(pdf)
+  pages <- which(stringr::str_detect(
+    pdf$text,
+    stringr::regex(pattern, ignore_case = TRUE)
+  ))
+
+  return(pages)
+}
+
 pdf_page_containing <- function(pdf, pattern) {
   pdf <- as_cceb_pdf(pdf)
-  matches <- purrr::map_lgl(
-    pdf$text,
-    \(page) {
-      stringr::str_detect(
-        page,
-        stringr::regex(pattern, ignore_case = TRUE)
-      )
-    }
-  )
-  pages <- which(matches)
+  pages <- pdf_pages_matching(pdf, pattern)
 
   if (length(pages) != 1L) {
     cli::cli_abort(
@@ -390,6 +471,49 @@ pdf_page_containing <- function(pdf, pattern) {
 
   return(pdf$text[[pages]])
 }
+
+# Turns a `str_match()` result into a tibble with named capture columns.
+str_match_tibble <- function(string, pattern, names) {
+  matches <- stringr::str_match(string, pattern)
+  colnames(matches) <- names
+  result <- tibble::as_tibble(matches)
+
+  return(result)
+}
+
+pdf_page_lines <- function(page) {
+  lines <- stringr::str_squish(stringr::str_split_1(page, "\n"))
+
+  return(lines)
+}
+
+# Row labels -------------------------------------------------------------
+
+# Source labels are literal text, so they are escaped before they reach a
+# regular expression.
+.alias_pattern <- function(aliases) {
+  pattern <- stringr::str_c(
+    "^(",
+    stringr::str_c(stringr::str_escape(aliases), collapse = "|"),
+    ")"
+  )
+
+  return(pattern)
+}
+
+alias_line_indexes <- function(lines, aliases) {
+  indexes <- which(stringr::str_detect(lines, .alias_pattern(aliases)))
+
+  return(indexes)
+}
+
+alias_label <- function(line, aliases) {
+  matched <- stringr::str_starts(line, stringr::str_escape(aliases))
+
+  return(aliases[[which(matched)[[1]]]])
+}
+
+# Numbers ----------------------------------------------------------------
 
 parse_brazilian_number <- function(x) {
   x <- stringr::str_remove_all(x, "[^0-9,.-]")
@@ -402,4 +526,22 @@ parse_brazilian_number <- function(x) {
   }
 
   return(value)
+}
+
+# Values written with a decimal comma follow the Brazilian convention, while
+# the remaining ones are plain integers or already use a decimal point.
+parse_cceb_percentages <- function(values) {
+  values <- stringr::str_remove(values, "%")
+  brazilian <- stringr::str_detect(values, ",")
+  result <- rep(NA_real_, length(values))
+  result[!brazilian] <- as.numeric(values[!brazilian])
+  if (any(brazilian)) {
+    result[brazilian] <- parse_brazilian_number(values[brazilian])
+  }
+
+  if (anyNA(result)) {
+    cli::cli_abort("Could not parse CCEB percentage values.")
+  }
+
+  return(result / 100)
 }
