@@ -7,12 +7,14 @@ Description: Provides tidy tables from the Brazilian Economic Classification
     Criterion (CCEB), including scoring rules, class cutoffs, income
     estimates, geographic distributions, edition selection, and offline
     deflation helpers.
-License: MIT + file LICENSE
-Encoding: UTF-8
-Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.3
-Suggests: 
+Depends: 
+    R (>= 3.5)
+Imports: 
     cli,
+    lifecycle,
+    rlang,
+    tibble
+Suggests:
     digest,
     dplyr,
     httr2,
@@ -22,9 +24,11 @@ Suggests:
     rvest,
     stringr,
     testthat (>= 3.0.0),
-    tibble,
     xml2
 Config/testthat/edition: 3
-Depends: 
-    R (>= 3.5)
-LazyData: true
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+URL: https://github.com/viniciusoike/criteriobrasil
+BugReports: https://github.com/viniciusoike/criteriobrasil/issues

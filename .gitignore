@@ -2,3 +2,4 @@
 data-raw/pdf/*
 !data-raw/pdf/.gitkeep
 data-raw/.cache/
+data-raw/release/

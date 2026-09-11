@@ -2,7 +2,11 @@ helper_dir <- normalizePath(
   file.path(testthat::test_path(), "..", "..", "data-raw", "R"),
   mustWork = FALSE
 )
-if (!dir.exists(helper_dir)) {
+release_dir <- normalizePath(
+  file.path(testthat::test_path(), "..", "..", "data-raw", "release"),
+  mustWork = FALSE
+)
+if (!dir.exists(helper_dir) || !dir.exists(release_dir)) {
   testthat::skip("data-raw helpers are available in the source checkout")
 }
 
@@ -16,12 +20,9 @@ source(file.path(helper_dir, "validate.R"), local = environment())
   tables <- .cceb_required_tables
   result <- setNames(vector("list", length(tables)), tables)
   for (table_name in tables) {
-    environment <- new.env(parent = emptyenv())
-    load(
-      file.path(root, "data", paste0(table_name, ".rda")),
-      envir = environment
+    result[[table_name]] <- readRDS(
+      file.path(root, "data-raw", "release", paste0(table_name, ".rds"))
     )
-    result[[table_name]] <- environment[[table_name]]
   }
 
   return(result)

@@ -208,6 +208,68 @@ de `cceb_get()` abre com esta tabela de referência, derivada de
 `cceb_get()` nunca devolve objeto formatado nem aplica deflator; composição
 com `deflate_brl()` fica com o usuário.
 
+### Implementação do núcleo de acesso
+
+O primeiro incremento da API implementa somente `cceb_list_tables()` e
+`cceb_get()`. Não haverá uma função exportada por tabela: nomes como
+`cceb_get_income()` repetiriam a mesma lógica e ampliariam uma API para um
+acervo de apenas cinco tabelas.
+
+Cada tabela será publicada como um asset `.rds` separado e com o mesmo nome
+do objeto (`cceb_editions.rds`, `cceb_points.rds`, `cceb_cutoffs.rds`,
+`cceb_income.rds` e `cceb_distribution.rds`). O pacote aponta para uma tag de
+release imutável, registrada em uma constante interna. Uma correção ou nova
+edição gera outra tag e uma nova versão do pacote passa a apontar para ela.
+Isso preserva a reprodutibilidade; uma URL mutável como `data-latest` poderia
+entregar dados diferentes sem mudança no código instalado.
+
+O registro das cinco tabelas fica no pacote e contém nome, descrição e asset.
+`cceb_list_tables()` combina esse registro com a disponibilidade por edição
+derivada dos dados de build. Assim, listar o acervo é instantâneo e não exige
+rede. Um teste no build garante que o registro local e os assets publicados
+tenham os mesmos nomes e edições.
+
+`cceb_get()` valida `table` e `edition`, baixa apenas os assets necessários por
+uma URL pública do GitHub, lê o `.rds` em arquivo temporário e valida nome e
+esquema antes de devolver um tibble. Uma memória interna por asset evita um
+segundo download na mesma sessão. Não haverá cache persistente em disco: o
+acervo comprimido atual ocupa cerca de 24 KB e muda pouco, portanto a
+complexidade de expiração, permissões e limpeza não se justifica.
+
+Também não haverá fallback para extração direta dos PDFs da ABEP. O pipeline
+em `data-raw/` é ferramenta de manutenção, depende de revisão de fidelidade e
+não é uma fonte segura para uso automático. Falha de rede, asset ausente ou
+esquema incompatível produz erro com a URL tentada e uma orientação objetiva.
+
+O contrato inicial será:
+
+```r
+cceb_list_tables()
+cceb_get(table = "distribution", edition = NULL)
+cceb_get(table = "income", edition = 2024L)
+cceb_get(table = "all", edition = "all")
+```
+
+- `table` aceita um dos cinco nomes sem o prefixo `cceb_` ou `"all"`.
+- `edition = NULL` seleciona a maior `edition_id` disponível naquela tabela;
+  para `table = "all"`, seleciona separadamente a edição mais recente de cada
+  tabela, porque a edição 2015, por exemplo, não possui renda.
+- `edition` aceita um inteiro escalar ou `"all"`. Outros textos, vetores,
+  valores ausentes e edições indisponíveis falham com a lista de opções
+  válidas.
+- `table = "all"` sempre devolve uma lista nomeada de tibbles. Uma edição sem
+  determinada tabela gera um erro, em vez de omitir silenciosamente o
+  elemento.
+- As linhas preservam a ordem canônica do asset; a função só seleciona a
+  edição e não renomeia, reordena nem transforma colunas.
+
+Os testes cobrem os valores padrão, todas as combinações de `"all"`, seleção
+de edição, classes e tipos de retorno, ordem das linhas, erros de argumento,
+falhas de download e memoização. Os testes de unidade simulam o download e
+rodam offline; um teste separado do pipeline confere os `.rds` gerados contra
+o registro local. A documentação executa `cceb_list_tables()` sem rede e
+restringe os exemplos de download a sessões interativas.
+
 `cceb_score_table()` devolve pontuação, cortes e distribuição num objeto
 formatado, com fonte e data de vigência no rodapé, pronto para slide. Internamente
 consome `cceb_get()`.
@@ -271,9 +333,11 @@ referência. A paridade entre idiomas ainda não faz parte do pipeline.
 2. Parser do regime 2015, que cobre 8 documentos
 3. Parsers dos regimes 2026 e 2003
 4. `03_validate.R` e a suíte de testthat
-5. `cceb_classify()` e `cceb_score_table()`
-6. Série de IPCA e `deflate_brl()`
-7. Vignette sobre qual edição usar, pkgdown e r-universe
+5. Assets `.rds`, `cceb_list_tables()` e `cceb_get()`
+6. `cceb_edition_for()`
+7. `cceb_classify()` e `cceb_score_table()`
+8. Série de IPCA e `deflate_brl()`
+9. Vignette sobre qual edição usar, pkgdown e r-universe
 
 ## Fora de escopo agora
 

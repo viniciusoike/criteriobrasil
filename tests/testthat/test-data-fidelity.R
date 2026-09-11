@@ -2,7 +2,11 @@ helper_dir <- normalizePath(
   file.path(testthat::test_path(), "..", "..", "data-raw", "R"),
   mustWork = FALSE
 )
-if (!dir.exists(helper_dir)) {
+release_dir <- normalizePath(
+  file.path(testthat::test_path(), "..", "..", "data-raw", "release"),
+  mustWork = FALSE
+)
+if (!dir.exists(helper_dir) || !dir.exists(release_dir)) {
   testthat::skip("data-raw helpers are available in the source checkout")
 }
 
@@ -20,12 +24,9 @@ source(file.path(helper_dir, "fidelity.R"), local = environment())
     .cceb_required_tables
   )
   for (table_name in .cceb_required_tables) {
-    environment <- new.env(parent = emptyenv())
-    load(
-      file.path(root, "data", paste0(table_name, ".rda")),
-      envir = environment
+    result[[table_name]] <- readRDS(
+      file.path(root, "data-raw", "release", paste0(table_name, ".rds"))
     )
-    result[[table_name]] <- environment[[table_name]]
   }
 
   return(result)

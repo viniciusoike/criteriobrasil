@@ -6,9 +6,19 @@
 \alias{criteriobrasil-package}
 \title{criteriobrasil}
 \description{
+\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#experimental}{\figure{lifecycle-experimental.svg}{options: alt='[Experimental]'}}}{\strong{[Experimental]}}
+
 Tidy tables from the Brazilian Economic Classification Criterion (CCEB),
 including scoring rules, class cutoffs, income estimates, and geographic
 distributions.
+}
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://github.com/viniciusoike/criteriobrasil}
+  \item Report bugs at \url{https://github.com/viniciusoike/criteriobrasil/issues}
+}
+
 }
 \author{
 \strong{Maintainer}: Vinicius Oike \email{viniciusoike@gmail.com}
