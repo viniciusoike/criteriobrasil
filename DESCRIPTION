@@ -1,0 +1,30 @@
+Package: criteriobrasil
+Title: Tidy Tables from the Brazilian Economic Classification Criterion
+Version: 0.0.0.9000
+Authors@R: 
+    person("Vinicius", "Oike", , "viniciusoike@gmail.com", role = c("aut", "cre"))
+Description: Provides tidy tables from the Brazilian Economic Classification
+    Criterion (CCEB), including scoring rules, class cutoffs, income
+    estimates, geographic distributions, edition selection, and offline
+    deflation helpers.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Suggests: 
+    cli,
+    digest,
+    dplyr,
+    httr2,
+    pdftools,
+    purrr,
+    readr,
+    rvest,
+    stringr,
+    testthat (>= 3.0.0),
+    tibble,
+    xml2
+Config/testthat/edition: 3
+Depends: 
+    R (>= 3.5)
+LazyData: true

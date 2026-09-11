@@ -1,0 +1,4 @@
+^data-raw$
+^data/\.gitkeep$
+^PLAN\.md$
+^LICENSE\.md$

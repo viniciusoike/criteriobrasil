@@ -1,0 +1,3 @@
+edition_id,table_name,file_name,source_sha256,source_page
+2013,income,2013_income.csv,2641b0abc22ae7495def46d116fbbeea9f944f3241f0fe9339c388f536aedfd3,4
+2013,distribution,2013_distribution.csv,2641b0abc22ae7495def46d116fbbeea9f944f3241f0fe9339c388f536aedfd3,5
