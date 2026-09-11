@@ -22,7 +22,7 @@
 #'
 #' @export
 cceb_list_tables <- function() {
-  cceb_registry()[c("table", "description", "editions")]
+  return(cceb_registry()[c("table", "description", "editions")])
 }
 
 #' Get a CCEB table
@@ -63,19 +63,24 @@ cceb_get <- function(table = "distribution", edition = NULL) {
   }
 
   cceb_validate_availability(tables, edition)
-  result <- lapply(tables, cceb_get_one, edition = edition)
+  result <- lapply(
+    tables,
+    cceb_get_one,
+    edition = edition,
+    call = rlang::current_env()
+  )
 
   if (!identical(table, "all")) {
     return(result[[1L]])
   }
 
-  stats::setNames(result, tables)
+  return(stats::setNames(result, tables))
 }
 
 
 # Argument validation ---------------------------------------------------------
 
-cceb_validate_table <- function(table) {
+cceb_validate_table <- function(table, call = rlang::caller_env()) {
   choices <- c(cceb_registry()$table, "all")
   valid <- is.character(table) &&
     length(table) == 1L &&
@@ -83,16 +88,19 @@ cceb_validate_table <- function(table) {
     table %in% choices
 
   if (!valid) {
-    cli::cli_abort(c(
-      "{.arg table} must be one available table or {.val all}.",
-      "i" = "Available tables: {paste(choices, collapse = ', ')}."
-    ))
+    cli::cli_abort(
+      c(
+        "{.arg table} must be one available table or {.val all}.",
+        "i" = "Available tables: {paste(choices, collapse = ', ')}."
+      ),
+      call = call
+    )
   }
 
-  table
+  return(table)
 }
 
-cceb_validate_edition <- function(edition) {
+cceb_validate_edition <- function(edition, call = rlang::caller_env()) {
   if (is.null(edition) || identical(edition, "all")) {
     return(edition)
   }
@@ -107,14 +115,19 @@ cceb_validate_edition <- function(edition) {
 
   if (!valid) {
     cli::cli_abort(
-      "{.arg edition} must be `NULL`, one whole number, or {.val all}."
+      "{.arg edition} must be `NULL`, one whole number, or {.val all}.",
+      call = call
     )
   }
 
-  as.integer(edition)
+  return(as.integer(edition))
 }
 
-cceb_validate_availability <- function(tables, edition) {
+cceb_validate_availability <- function(
+  tables,
+  edition,
+  call = rlang::caller_env()
+) {
   if (is.null(edition) || identical(edition, "all")) {
     return(invisible())
   }
@@ -130,24 +143,27 @@ cceb_validate_availability <- function(tables, edition) {
     table <- tables[which(unavailable)[[1L]]]
     available <- cceb_registry_entry(table)$editions[[1L]]
     available <- paste(available, collapse = ", ")
-    cli::cli_abort(c(
-      "Edition {edition} is not available for table {.val {table}}.",
-      "i" = "Available editions: {available}."
-    ))
+    cli::cli_abort(
+      c(
+        "Edition {edition} is not available for table {.val {table}}.",
+        "i" = "Available editions: {available}."
+      ),
+      call = call
+    )
   }
 
-  invisible()
+  return(invisible())
 }
 
 cceb_edition_unavailable <- function(table, edition) {
-  !edition %in% cceb_registry_entry(table)$editions[[1L]]
+  return(!edition %in% cceb_registry_entry(table)$editions[[1L]])
 }
 
 
 # Asset access ----------------------------------------------------------------
 
-cceb_get_one <- function(table, edition) {
-  data <- cceb_fetch_asset(table)
+cceb_get_one <- function(table, edition, call = rlang::caller_env()) {
+  data <- cceb_fetch_asset(table, call = call)
 
   if (identical(edition, "all")) {
     return(data)
@@ -159,10 +175,10 @@ cceb_get_one <- function(table, edition) {
     selected <- max(available)
   }
 
-  data[data$edition_id == selected, , drop = FALSE]
+  return(data[data$edition_id == selected, , drop = FALSE])
 }
 
-cceb_fetch_asset <- function(table) {
+cceb_fetch_asset <- function(table, call = rlang::caller_env()) {
   if (exists(table, envir = .cceb_asset_cache, inherits = FALSE)) {
     return(get(table, envir = .cceb_asset_cache, inherits = FALSE))
   }
@@ -181,7 +197,8 @@ cceb_fetch_asset <- function(table) {
           "Could not download CCEB table {.val {table}}.",
           "i" = "Release asset: {url}"
         ),
-        parent = cnd
+        parent = cnd,
+        call = call
       )
     }
   )
@@ -194,14 +211,15 @@ cceb_fetch_asset <- function(table) {
           "Could not read CCEB table {.val {table}}.",
           "i" = "Release asset: {url}"
         ),
-        parent = cnd
+        parent = cnd,
+        call = call
       )
     }
   )
 
-  data <- cceb_validate_asset(data, table)
+  data <- cceb_validate_asset(data, table, call = call)
   assign(table, data, envir = .cceb_asset_cache)
-  data
+  return(data)
 }
 
 .cceb_download_file <- function(url, destination) {
@@ -215,63 +233,71 @@ cceb_fetch_asset <- function(table) {
   )
 
   if (!identical(status, 0L)) {
-    stop("download failed with status ", status, call. = FALSE)
+    cli::cli_abort("Download failed with status {status}.")
   }
 
-  invisible(destination)
+  return(invisible(destination))
 }
 
 cceb_asset_url <- function(asset) {
-  sprintf(
+  return(sprintf(
     "https://github.com/%s/releases/download/%s/%s",
     .cceb_release_repo,
     .cceb_release_tag,
     asset
-  )
+  ))
 }
 
 cceb_registry_entry <- function(table) {
   registry <- cceb_registry()
-  registry[registry$table == table, , drop = FALSE]
+  return(registry[registry$table == table, , drop = FALSE])
 }
 
 cceb_registry <- function() {
-  get(".cceb_table_registry", envir = environment())
+  return(get(".cceb_table_registry", envir = environment()))
 }
 
-cceb_validate_asset <- function(data, table) {
+cceb_validate_asset <- function(data, table, call = rlang::caller_env()) {
   entry <- cceb_registry_entry(table)
   expected <- entry$columns[[1L]]
 
   if (!inherits(data, "data.frame")) {
     cli::cli_abort(
-      "Release asset for table {.val {table}} must contain a data frame."
+      "Release asset for table {.val {table}} must contain a data frame.",
+      call = call
     )
   }
 
   if (!identical(names(data), expected)) {
-    cli::cli_abort(c(
-      "Release asset for table {.val {table}} has an unexpected schema.",
-      "i" = "Expected columns: {paste(expected, collapse = ', ')}.",
-      "i" = "Found columns: {paste(names(data), collapse = ', ')}."
-    ))
+    cli::cli_abort(
+      c(
+        "Release asset for table {.val {table}} has an unexpected schema.",
+        "i" = "Expected columns: {paste(expected, collapse = ', ')}.",
+        "i" = "Found columns: {paste(names(data), collapse = ', ')}."
+      ),
+      call = call
+    )
   }
 
   if (!is.integer(data$edition_id)) {
     cli::cli_abort(
-      "Column {.field edition_id} in table {.val {table}} must be integer."
+      "Column {.field edition_id} in table {.val {table}} must be integer.",
+      call = call
     )
   }
 
   editions <- sort(unique(data$edition_id))
   expected_editions <- entry$editions[[1L]]
   if (!identical(editions, expected_editions)) {
-    cli::cli_abort(c(
-      "Release asset for table {.val {table}} has unexpected editions.",
-      "i" = "Expected editions: {paste(expected_editions, collapse = ', ')}.",
-      "i" = "Found editions: {paste(editions, collapse = ', ')}."
-    ))
+    cli::cli_abort(
+      c(
+        "Release asset for table {.val {table}} has unexpected editions.",
+        "i" = "Expected editions: {paste(expected_editions, collapse = ', ')}.",
+        "i" = "Found editions: {paste(editions, collapse = ', ')}."
+      ),
+      call = call
+    )
   }
 
-  tibble::as_tibble(data)
+  return(tibble::as_tibble(data))
 }

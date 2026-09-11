@@ -49,7 +49,7 @@ regime, validates the tables, and prepares the release assets:
 3. validate table integrity and compare every result with a source fingerprint;
 4. write the internal table registry and prepare the `.rds` release assets.
 
-Users download the tables from the immutable release tag pinned by the
-installed package version. The package itself contains only the table registry.
+Each package version downloads the tables from a fixed GitHub release tag. The
+package itself contains only the table registry.
 
 Downloaded PDFs are ignored by Git and are never committed to the package.

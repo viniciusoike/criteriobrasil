@@ -12,6 +12,7 @@ Depends:
 Imports: 
     cli,
     lifecycle,
+    rlang,
     tibble
 Suggests:
     digest,
