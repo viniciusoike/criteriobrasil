@@ -3,3 +3,7 @@ data-raw/pdf/*
 !data-raw/pdf/.gitkeep
 data-raw/.cache/
 data-raw/release/
+
+# Local EDA scratch
+Rplots.pdf
+data-raw/eda/
