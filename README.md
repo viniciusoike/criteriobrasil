@@ -16,7 +16,16 @@ the function API and column layout may still change.
 
 ## Installation
 
-You can install the development version of `criteriobrasil` like so:
+Install the release from R-universe:
+
+``` r
+install.packages(
+  "criteriobrasil",
+  repos = c("https://viniciusoike.r-universe.dev", "https://cloud.r-project.org")
+)
+```
+
+The development version is on GitHub:
 
 ``` r
 remotes::install_github("viniciusoike/criteriobrasil")
