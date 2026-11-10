@@ -1,4 +1,4 @@
-# criteriobrasil 0.0.0.9000
+# criteriobrasil 0.1.0
 
 - Added `cceb_get()` to download clean CCEB tables from GitHub release assets.
 - Added `cceb_list_tables()` to inspect available tables and editions without a network request.
